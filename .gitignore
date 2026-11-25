@@ -1,0 +1,22 @@
+# Dart
+.dart_tool/
+.packages
+build/
+coverage/
+.pub-cache/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+key.properties
+
+# Temporary and operating-system files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

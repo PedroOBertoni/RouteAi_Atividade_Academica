@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RouteAI Delivery</title>
+<style>
+  :root { --cor:#b71c1c; --borda:#ddd; --fundo:#f6f5f4; --texto:#222; --sutil:#666 }
+  * { box-sizing:border-box }
+  body { margin:0; font:15px/1.45 "Segoe UI",system-ui,sans-serif; background:var(--fundo); color:var(--texto) }
+  header { background:var(--cor); color:#fff; padding:12px 20px }
+  header h1 { margin:0; font-size:20px }
+  main { display:grid; gap:14px; padding:14px; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)) }
+  section { background:#fff; border:1px solid var(--borda); border-radius:8px; padding:14px; min-width:0 }
+  h2 { font-size:16px; margin:0 0 10px }
+  table { width:100%; border-collapse:collapse; font-size:14px }
+  td,th { text-align:left; padding:5px 6px; border-bottom:1px solid #eee; vertical-align:top }
+  input,select,button { font:inherit; padding:6px 9px; border:1px solid #bbb; border-radius:6px; background:#fff }
+  input,select { width:100%; margin-bottom:6px }
+  button { cursor:pointer }
+  button.p { background:var(--cor); color:#fff; border-color:var(--cor) }
+  .erro { color:var(--cor); min-height:1.4em; font-size:14px }
+  .largo { grid-column:1/-1 }
+  #log { height:260px; overflow:auto; font:13px/1.5 Consolas,monospace; overflow-wrap:anywhere }
+  #log div { border-bottom:1px solid #f0f0f0 }
+  .publicada { color:#0b5394 } .processada { color:#2e7d32 } .falhou { color:#b26a00 } .morta { color:var(--cor); font-weight:700 }
+  .sutil { color:var(--sutil); font-size:13px }
+</style>
+</head>
+<body>
+<header><h1>RouteAI Delivery</h1></header>
+<main>
+  <section>
+    <h2>Novo pedido</h2>
+    <input id="cliente" aria-label="Cliente" placeholder="Cliente" value="Ana">
+    <input id="endereco" aria-label="Endereço" placeholder="Endereço com número" value="Rua Major Claudiano 1200">
+    <select id="produto" aria-label="Produto"></select>
+    <button class="p" id="pedir">Fazer pedido</button>
+    <div class="erro" id="erro" role="status"></div>
+  </section>
+  <section><h2>Pedidos</h2><table id="pedidos"></table></section>
+  <section><h2>Cozinha</h2><table id="comandas"></table></section>
+  <section>
+    <h2>Entregas</h2><table id="entregas"></table>
+    <p><button class="p" id="despachar">Montar rota e despachar</button></p>
+    <div id="rota" class="sutil"></div>
+  </section>
+  <section>
+    <h2>Filas</h2><table id="filas"></table>
+    <p><button id="reprocessar">Reprocessar mortas</button></p>
+    <label>Operadora de pagamento
+      <select id="gateway">
+        <option value="aprova">Aprova</option><option value="recusa">Recusa</option><option value="foraDoAr">Fora do ar</option>
+      </select>
+    </label>
+  </section>
+  <section><h2>Avisos ao cliente</h2><table id="avisos"></table></section>
+  <section class="largo"><h2>Mensagens em tempo real</h2><div id="log"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+// Todo dado entra por textContent: nada vindo do usuário vira HTML.
+function el(tag, texto, classe) {
+  const e = document.createElement(tag);
+  if (texto != null) e.textContent = texto;
+  if (classe) e.className = classe;
+  return e;
+}
+function tabela(id, linhas) {
+  const t = $(id); t.replaceChildren();
+  if (!linhas.length) return t.append(el('caption', 'Nada por aqui.', 'sutil'));
+  for (const celulas of linhas) {
+    const tr = el('tr');
+    for (const c of celulas) { const td = el('td'); td.append(...[].concat(c)); tr.append(td); }
+    t.append(tr);
+  }
+}
+const rotulo = s => s.replace(/[A-Z]/g, m => ' ' + m.toLowerCase());
+function botao(texto, caminho) {
+  const b = el('button', texto);
+  b.onclick = () => post(caminho);
+  return b;
+}
+async function post(caminho, corpo) {
+  $('erro').textContent = '';
+  const r = await fetch('/api/' + caminho, { method: 'POST', body: JSON.stringify(corpo ?? {}) });
+  const j = await r.json();
+  if (!r.ok) $('erro').textContent = j.erro;
+  atualizar();
+  return r.ok ? j : null;
+}
+async function atualizar() {
+  const s = await (await fetch('/api/estado')).json();
+  tabela('pedidos', s.pedidos.map(p => [p.id, p.cliente, p.total, rotulo(p.situacao)]));
+  tabela('comandas', s.comandas.map(c => [c.id, c.itens.join(', '), rotulo(c.situacao),
+    c.situacao === 'emPreparo' ? [botao('Pronto', `cozinha/${c.id}/pronto`), ' ', botao('Recusar', `cozinha/${c.id}/recusar`)] : '']));
+  tabela('entregas', s.entregas.map(e => [e.id, rotulo(e.situacao),
+    e.situacao === 'emRota' ? botao('Concluir', `entregas/${e.id}/concluir`) : '']));
+  tabela('filas', s.filas.map(f => [f.nome, `${f.pendentes} na fila`, `${f.mortas} mortas`,
+    botao(f.pausada ? 'Retomar' : 'Pausar', `filas/${f.nome}/${f.pausada ? 'retomar' : 'pausar'}`)]));
+  tabela('avisos', s.avisos.slice(-8).reverse().map(a => [a.id, a.texto]));
+  $('gateway').value = s.gateway;
+}
+$('pedir').onclick = () => post('pedidos', {
+  cliente: $('cliente').value, endereco: $('endereco').value,
+  itens: [{ produtoId: $('produto').value, quantidade: 1 }] });
+$('despachar').onclick = async () => {
+  const r = await post('entregas/despachar');
+  if (!r) return;
+  $('rota').replaceChildren(...r.paradas.map((p, i) => el('div',
+    `${i + 1}. ${p.pedidoId} · ${p.endereco} · ${rotulo(p.prioridade)} · chega ${new Date(p.chegada).toLocaleTimeString('pt-BR')}`)),
+    ...r.naoLocalizados.map(id => el('div', `${id}: endereço não localizado`, 'morta')));
+};
+$('reprocessar').onclick = () => post('mortas/reprocessar');
+$('gateway').onchange = e => post('gateway/' + e.target.value);
+fetch('/api/cardapio').then(r => r.json()).then(ps => ps.forEach(p => {
+  const o = el('option', `${p.nome} · ${p.preco}`); o.value = p.id; $('produto').append(o);
+}));
+new EventSource('/api/eventos').onmessage = m => {
+  const x = JSON.parse(m.data);
+  const texto = [new Date(x.em).toLocaleTimeString('pt-BR'), x.situacao.toUpperCase(), x.tipo, x.pedidoId,
+    x.consumidor && '→ ' + x.consumidor, x.tentativa > 1 && `tentativa ${x.tentativa}`, x.erro].filter(Boolean).join('  ');
+  $('log').prepend(el('div', texto, x.situacao));
+  atualizar();
+};
+atualizar();
+</script>
+</body>
+</html>

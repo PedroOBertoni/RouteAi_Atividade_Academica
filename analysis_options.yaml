@@ -1,0 +1,6 @@
+include: package:lints/recommended.yaml
+analyzer:
+  errors:
+    # Importar pacote nao declarado no pubspec e erro, nao aviso.
+    depend_on_referenced_packages: error
+    implementation_imports: error
